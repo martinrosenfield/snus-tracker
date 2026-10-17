@@ -211,7 +211,8 @@ const DEFAULTS = {
   mgPerPortion: 8,
 };
 const LS_KEY = 'snus-tracker-v5';
-const SYNC_BUCKET = 'BUCKET_ID'; // облачное хранилище для синхронизации между устройствами
+const SYNC_BIN_ID = '6ad3ceaaffd5d16053743f69'; // jsonbin-контейнер для синхронизации между устройствами
+const SYNC_KEY = '$2a$10$v9U1ABYVoGssSZxhyjgobez2MsnNhNzlafv3hozHgmArEgN87ITz2';
 
 function localDateStr(d) {
   return d.getFullYear() + '-' +
@@ -232,22 +233,26 @@ function save() {
   syncWrite();
 }
 
-// --- облачная синхронизация ---
+// --- облачная синхронизация (jsonbin.io) ---
 // отметки объединяются с облаком, параметры — берутся из того изменения, что новее
 async function syncRead() {
-  if (SYNC_BUCKET === 'BUCKET_ID') return null;
+  if (!SYNC_BIN_ID) return null;
   try {
-    const r = await fetch('https://kvdb.io/' + SYNC_BUCKET + '/state');
+    const r = await fetch('https://api.jsonbin.io/v3/b/' + SYNC_BIN_ID, {
+      headers: { 'X-Master-Key': SYNC_KEY },
+    });
     if (!r.ok) return null;
-    return await r.json();
+    const data = await r.json();
+    return data.record;
   } catch (e) { return null; }
 }
 
 async function syncWrite() {
-  if (SYNC_BUCKET === 'BUCKET_ID') return;
+  if (!SYNC_BIN_ID) return;
   try {
-    await fetch('https://kvdb.io/' + SYNC_BUCKET + '/state', {
-      method: 'POST',
+    await fetch('https://api.jsonbin.io/v3/b/' + SYNC_BIN_ID, {
+      method: 'PUT',
+      headers: { 'X-Master-Key': SYNC_KEY, 'Content-Type': 'application/json' },
       body: JSON.stringify({ ...state, updatedAt: Date.now() }),
     });
   } catch (e) {}
