@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Трекер свободы от никотина</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --card: #161d29;
+    --border: #262f40;
+    --accent: #34d399;
+    --accent2: #60a5fa;
+    --text: #e6eaf2;
+    --muted: #8b94a7;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+    background:
+      radial-gradient(ellipse 80% 50% at 50% -10%, rgba(96,165,250,.12), transparent),
+      radial-gradient(ellipse 60% 40% at 50% 110%, rgba(52,211,153,.10), transparent),
+      var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 40px 16px 60px;
+  }
+  h1 { font-size: 1.6rem; text-align: center; }
+  .start { color: var(--muted); font-size: .9rem; margin: 4px 0 28px; }
+
+  /* --- кольцо прогресса --- */
+  .ring-wrap { position: relative; width: min(320px, 80vw); }
+  .ring-wrap svg { width: 100%; display: block; transform: rotate(-90deg); }
+  .ring-center {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+  }
+  .days {
+    font-size: clamp(3.4rem, 15vw, 5.5rem);
+    font-weight: 800; line-height: 1;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .days-label { color: var(--muted); margin-top: 4px; }
+  .next-milestone { color: var(--muted); font-size: .78rem; margin-top: 10px; text-align: center; }
+
+  /* --- карточки статистики --- */
+  .grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 14px; width: 100%; max-width: 680px; margin-top: 34px;
+  }
+  .card {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 16px; padding: 18px; text-align: center;
+    transition: transform .2s, border-color .2s;
+  }
+  .card:hover { transform: translateY(-3px); border-color: var(--accent); }
+  .card .value { font-size: 1.8rem; font-weight: 700; color: var(--accent); }
+  .card .label { color: var(--muted); font-size: .85rem; margin-top: 6px; }
+
+  /* --- шкала вех --- */
+  .timeline {
+    width: 100%; max-width: 680px; margin-top: 36px;
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 16px; padding: 22px;
+  }
+  .timeline h2 { font-size: 1rem; margin-bottom: 18px; }
+  .milestone {
+    display: flex; gap: 14px; position: relative; padding-bottom: 18px;
+  }
+  .milestone:last-child { padding-bottom: 0; }
+  .milestone::before {
+    content: ''; position: absolute; left: 11px; top: 26px; bottom: 0;
+    width: 2px; background: var(--border);
+  }
+  .milestone:last-child::before { display: none; }
+  .dot {
+    flex-shrink: 0; width: 24px; height: 24px; border-radius: 50%;
+    border: 2px solid var(--border); background: var(--bg);
+    display: flex; align-items: center; justify-content: center;
+    font-size: .8rem; color: transparent; z-index: 1;
+  }
+  .milestone.done .dot { background: var(--accent); border-color: var(--accent); color: #06281c; }
+  .milestone.current .dot { border-color: var(--accent2); box-shadow: 0 0 12px rgba(96,165,250,.5); }
+  .m-body { flex: 1; }
+  .m-title { font-weight: 600; font-size: .95rem; }
+  .milestone:not(.done):not(.current) .m-title { color: var(--muted); }
+  .milestone.current .m-title { color: var(--accent2); }
+  .m-desc { color: var(--muted); font-size: .83rem; margin-top: 3px; }
+  .m-days { color: var(--muted); font-size: .78rem; margin-top: 4px; }
+  .m-days .left { color: var(--accent2); }
+
+  .checkin { margin-top: 26px; width: 100%; max-width: 680px; }
+  .checkin button {
+    width: 100%; padding: 16px; border-radius: 14px; cursor: pointer;
+    font-size: 1.05rem; font-weight: 600; font-family: inherit;
+    border: 1px solid var(--accent);
+    background: linear-gradient(135deg, rgba(52,211,153,.15), rgba(96,165,250,.15));
+    color: var(--text);
+    transition: transform .15s, box-shadow .15s;
+  }
+  .checkin button:hover:not(:disabled) {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 24px rgba(52,211,153,.25);
+  }
+  .checkin button.done {
+    border-color: var(--border); background: var(--card);
+    color: var(--accent); cursor: default;
+  }
+  .checkin .hint { color: var(--muted); font-size: .82rem; text-align: center; margin-top: 8px; }
+
+  .relapses { margin-top: 18px; }
+  .relapses button {
+    background: none; border: 1px solid var(--border); border-radius: 10px;
+    color: var(--muted); padding: 10px 18px; cursor: pointer; font-size: .88rem;
+  }
+  .relapses button:hover { border-color: #f87171; color: #f87171; }
+
+  .settings {
+    margin-top: 26px; width: 100%; max-width: 680px;
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 16px; padding: 20px;
+  }
+  .settings h2 { font-size: 1rem; margin-bottom: 14px; }
+  .row { display: flex; gap: 12px; flex-wrap: wrap; }
+  .field { flex: 1; min-width: 130px; }
+  .field label { display: block; color: var(--muted); font-size: .8rem; margin-bottom: 6px; }
+  .field input {
+    width: 100%; background: #0d1420; border: 1px solid var(--border);
+    border-radius: 10px; color: var(--text); padding: 10px 12px; font-size: 1rem;
+  }
+  .field input:focus { outline: none; border-color: var(--accent); }
+</style>
+</head>
+<body>
+  <h1>Свобода от никотина</h1>
+  <div class="start">День отказа от снюса: 15.10.2026</div>
+
+  <div class="ring-wrap">
+    <svg viewBox="0 0 200 200">
+      <circle cx="100" cy="100" r="88" fill="none" stroke="#1c2534" stroke-width="12"/>
+      <circle id="ring" cx="100" cy="100" r="88" fill="none" stroke="url(#grad)" stroke-width="12"
+              stroke-linecap="round" stroke-dasharray="553" stroke-dashoffset="553"/>
+      <defs>
+        <linearGradient id="grad" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stop-color="#34d399"/>
+          <stop offset="100%" stop-color="#60a5fa"/>
+        </linearGradient>
+      </defs>
+    </svg>
+    <div class="ring-center">
+      <div class="days" id="days">0</div>
+      <div class="days-label" id="daysLabel">дней без снюса</div>
+      <div class="next-milestone" id="nextMilestone"></div>
+    </div>
+  </div>
+
+  <div class="grid">
+    <div class="card"><div class="value" id="portions">0</div><div class="label">порций не использовано</div></div>
+    <div class="card"><div class="value" id="money">0 ₽</div><div class="label">сэкономлено</div></div>
+    <div class="card"><div class="value" id="nicotine">0 мг</div><div class="label">никотина не получено*</div></div>
+    <div class="card"><div class="value" id="hours">0</div><div class="label">часов чистой крови</div></div>
+  </div>
+
+  <div class="timeline">
+    <h2>Что происходит с организмом</h2>
+    <div id="milestones"></div>
+  </div>
+
+  <div class="checkin">
+    <button id="checkinBtn"></button>
+    <div class="hint" id="checkinHint"></div>
+  </div>
+
+  <div class="relapses">
+    <button id="relapseBtn">Сорвался — начать заново</button>
+  </div>
+
+  <div class="settings">
+    <h2>Параметры</h2>
+    <div class="row">
+      <div class="field">
+        <label>Порций в день (было)</label>
+        <input type="number" id="portionsPerDay" min="0">
+      </div>
+      <div class="field">
+        <label>Цена банки, ₽</label>
+        <input type="number" id="canPrice" min="0">
+      </div>
+      <div class="field">
+        <label>Порций в банке</label>
+        <input type="number" id="canSize" min="1">
+      </div>
+      <div class="field">
+        <label>Никотина в порции, мг</label>
+        <input type="number" id="mgPerPortion" min="0" step="0.1">
+      </div>
+    </div>
+  </div>
+
+<script>
+const DEFAULTS = {
+  startDate: '2026-10-15',
+  portionsPerDay: 8,
+  canPrice: 630,
+  canSize: 20,
+  mgPerPortion: 8,
+};
+const LS_KEY = 'snus-tracker-v5';
+const SYNC_BUCKET = 'BUCKET_ID'; // облачное хранилище для синхронизации между устройствами
+
+function localDateStr(d) {
+  return d.getFullYear() + '-' +
+    String(d.getMonth() + 1).padStart(2, '0') + '-' +
+    String(d.getDate()).padStart(2, '0');
+}
+
+let state = load();
+function load() {
+  try {
+    const s = JSON.parse(localStorage.getItem(LS_KEY));
+    if (s && s.startDate) return { ...DEFAULTS, ...s };
+  } catch (e) {}
+  return { ...DEFAULTS };
+}
+function save() {
+  localStorage.setItem(LS_KEY, JSON.stringify(state));
+  syncWrite();
+}
+
+// --- облачная синхронизация ---
+// отметки объединяются с облаком, параметры — берутся из того изменения, что новее
+async function syncRead() {
+  if (SYNC_BUCKET === 'BUCKET_ID') return null;
+  try {
+    const r = await fetch('https://kvdb.io/' + SYNC_BUCKET + '/state');
+    if (!r.ok) return null;
+    return await r.json();
+  } catch (e) { return null; }
+}
+
+async function syncWrite() {
+  if (SYNC_BUCKET === 'BUCKET_ID') return;
+  try {
+    await fetch('https://kvdb.io/' + SYNC_BUCKET + '/state', {
+      method: 'POST',
+      body: JSON.stringify({ ...state, updatedAt: Date.now() }),
+    });
+  } catch (e) {}
+}
+
+async function syncMerge() {
+  const cloud = await syncRead();
+  if (!cloud) return;
+  const local = { ...state };
+  if (Array.isArray(cloud.checkins)) {
+    state.checkins = [...new Set([...(local.checkins || []), ...cloud.checkins])].sort();
+  }
+  if (cloud.startDate && cloud.startDate > (local.startDate || '')) {
+    state.startDate = cloud.startDate;
+  }
+  const cloudNewer = (cloud.updatedAt || 0) > (local.updatedAt || 0);
+  for (const k of ['portionsPerDay', 'canPrice', 'canSize', 'mgPerPortion']) {
+    if (cloudNewer && cloud[k] !== undefined) state[k] = cloud[k];
+  }
+  state.updatedAt = Math.max(cloud.updatedAt || 0, local.updatedAt || 0);
+  save();
+}
+
+// миграция: заполняем подтверждённые дни от даты старта до вчерашнего;
+// сегодняшний день засчитывается только после отметки
+if (!Array.isArray(state.checkins)) {
+  state.checkins = [];
+  const start = new Date(state.startDate + 'T00:00:00');
+  const now = new Date();
+  const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  for (let d = new Date(start); d < todayMidnight; d.setDate(d.getDate() + 1)) {
+    state.checkins.push(localDateStr(d));
+  }
+  save();
+}
+
+const inputs = {
+  portionsPerDay: document.getElementById('portionsPerDay'),
+  canPrice: document.getElementById('canPrice'),
+  canSize: document.getElementById('canSize'),
+  mgPerPortion: document.getElementById('mgPerPortion'),
+};
+function syncInputs() {
+  for (const [key, el] of Object.entries(inputs)) el.value = state[key];
+}
+for (const [key, el] of Object.entries(inputs)) {
+  el.addEventListener('input', () => {
+    state[key] = Math.max(0, parseFloat(el.value) || 0);
+    state.updatedAt = Date.now();
+    save();
+    render();
+  });
+}
+
+document.getElementById('relapseBtn').addEventListener('click', () => {
+  if (!confirm('Сбросить счётчик и начать заново с сегодняшнего дня?')) return;
+  const today = localDateStr(new Date());
+  state.startDate = today;
+  state.checkins = [today];
+  save();
+  render();
+});
+
+const checkinBtn = document.getElementById('checkinBtn');
+const checkinHint = document.getElementById('checkinHint');
+checkinBtn.addEventListener('click', () => {
+  const today = localDateStr(new Date());
+  if (!state.checkins.includes(today)) {
+    state.checkins.push(today);
+    save();
+    render();
+  }
+});
+
+const MILESTONES = [
+  { d: 0,   title: 'Последняя порция', desc: 'Начало пути. Каждый час без никотина — уже победа.' },
+  { d: 1,   title: '20 минут — пульс в норме', desc: 'Давление и пульс возвращаются к обычному уровню.' },
+  { d: 3,   title: '72 часа — никотин выведен', desc: 'Самое сложное позади: никотина в крови больше нет, ломка постепенно отпускает.' },
+  { d: 7,   title: 'Неделя', desc: 'Вкус и запахи обостряются, дыхание становится легче.' },
+  { d: 14,  title: 'Две недели', desc: 'Кровообращение улучшилось, физическая выносливость растёт.' },
+  { d: 30,  title: 'Месяц', desc: 'Слизистая рта восстанавливается, риск инфаркта заметно снижен.' },
+  { d: 90,  title: '3 месяца', desc: 'Дёсна и слизистая заметно здоровее, зависимость на психологическом уровне слабеет.' },
+  { d: 180, title: 'Полгода', desc: 'Большинство тяговых ощущений исчезло, привычка практически побеждена.' },
+  { d: 365, title: 'Год', desc: 'Риск заболеваний сердца и сосудов снижен вдвое. Ты свободен.' },
+];
+
+const RING_LEN = 553;
+
+function plural(n, one, few, many) {
+  const m10 = n % 10, m100 = n % 100;
+  if (m10 === 1 && m100 !== 11) return one;
+  if (m10 >= 2 && m10 <= 4 && (m100 < 10 || m100 >= 20)) return few;
+  return many;
+}
+
+function render() {
+  const start = new Date(state.startDate + 'T00:00:00');
+  const now = new Date();
+  const diffMs = Math.max(0, now - start);
+  const diffDays = state.checkins.length; // только подтверждённые дни
+  const diffHours = Math.max(0, Math.floor(diffMs / 3600000));
+  const today = localDateStr(now);
+  const confirmedToday = state.checkins.includes(today);
+
+  // кнопка ежедневного подтверждения
+  if (confirmedToday) {
+    checkinBtn.textContent = 'Сегодня отмечено: без снюса ✓';
+    checkinBtn.className = 'done';
+    checkinBtn.disabled = true;
+    checkinHint.textContent = 'Загляни сюда завтра, чтобы отметить новый день';
+  } else {
+    checkinBtn.textContent = 'Сегодня я не употреблял снюс — отметить день';
+    checkinBtn.className = '';
+    checkinBtn.disabled = false;
+    const last = state.checkins[state.checkins.length - 1];
+    checkinHint.textContent = last
+      ? 'Последний отмеченный день: ' + last.split('-').reverse().join('.')
+      : '';
+  }
+
+  document.getElementById('days').textContent = diffDays;
+  document.getElementById('daysLabel').textContent =
+    diffDays + ' ' + plural(diffDays, 'день', 'дня', 'дней') + ' без снюса';
+
+  // кольцо прогресса: доля пути до следующей вехи
+  let prev = MILESTONES[0], next = MILESTONES[MILESTONES.length - 1];
+  for (let i = 0; i < MILESTONES.length; i++) {
+    if (diffDays >= MILESTONES[i].d) prev = MILESTONES[i];
+    if (diffDays < MILESTONES[i].d) { next = MILESTONES[i]; break; }
+  }
+  const span = Math.max(1, next.d - prev.d);
+  const frac = Math.min(1, (diffDays - prev.d) / span);
+  document.getElementById('ring').style.strokeDashoffset = RING_LEN * (1 - frac);
+  const left = next.d - diffDays;
+  document.getElementById('nextMilestone').textContent =
+    left > 0
+      ? `до «${next.title}» — ещё ${left} ${plural(left, 'день', 'дня', 'дней')}`
+      : 'все вехи пройдены';
+
+  // статистика
+  const portions = diffDays * state.portionsPerDay;
+  const money = portions / (state.canSize || 1) * state.canPrice;
+  const mg = portions * state.mgPerPortion;
+  document.getElementById('portions').textContent = portions.toLocaleString('ru-RU');
+  document.getElementById('money').textContent = money.toLocaleString('ru-RU', { maximumFractionDigits: 0 }) + ' ₽';
+  document.getElementById('nicotine').textContent = mg.toLocaleString('ru-RU', { maximumFractionDigits: 0 }) + ' мг';
+  document.getElementById('hours').textContent = diffHours.toLocaleString('ru-RU');
+
+  // шкала вех
+  const box = document.getElementById('milestones');
+  box.innerHTML = '';
+  let currentMarked = false;
+  MILESTONES.forEach((m, i) => {
+    const done = diffDays >= m.d;
+    const isCurrent = !done && !currentMarked;
+    if (isCurrent) currentMarked = true;
+    const row = document.createElement('div');
+    row.className = 'milestone' + (done ? ' done' : isCurrent ? ' current' : '');
+    const leftDays = m.d - diffDays;
+    row.innerHTML =
+      `<div class="dot">${done ? '✓' : ''}</div>
+       <div class="m-body">
+         <div class="m-title">${m.title}</div>
+         <div class="m-desc">${m.desc}</div>
+         ${!done && leftDays > 0 ? `<div class="m-days">через ${leftDays} ${plural(leftDays, 'день', 'дня', 'дней')}</div>` : ''}
+       </div>`;
+    box.appendChild(row);
+  });
+}
+
+// сначала подтягиваем облако, потом рисуем; без сети — просто работаем локально
+syncMerge().finally(() => {
+  syncInputs();
+  render();
+});
+setInterval(render, 60000);
+</script>
+</body>
+</html>
