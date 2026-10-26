@@ -138,7 +138,7 @@
 </head>
 <body>
   <h1>Свобода от никотина</h1>
-  <div class="start">День отказа от снюса: 15.10.2026</div>
+  <div class="start" id="startLabel"></div>
 
   <div class="ring-wrap">
     <svg viewBox="0 0 200 200">
@@ -204,13 +204,14 @@
 
 <script>
 const DEFAULTS = {
-  startDate: '2026-10-15',
+  startDate: '2026-10-14',
+  startTime: '23:00',
   portionsPerDay: 8,
   canPrice: 630,
   canSize: 20,
   mgPerPortion: 8,
 };
-const LS_KEY = 'snus-tracker-v5';
+const LS_KEY = 'snus-tracker-v6';
 const SYNC_BIN_ID = '6ad3ceaaffd5d16053743f69'; // jsonbin-контейнер для синхронизации между устройствами
 const SYNC_KEY = '$2a$10$v9U1ABYVoGssSZxhyjgobez2MsnNhNzlafv3hozHgmArEgN87ITz2';
 
@@ -269,6 +270,7 @@ async function syncMerge() {
     state.startDate = cloud.startDate;
   }
   const cloudNewer = (cloud.updatedAt || 0) > (local.updatedAt || 0);
+  if (cloudNewer && cloud.startTime !== undefined) state.startTime = cloud.startTime;
   for (const k of ['portionsPerDay', 'canPrice', 'canSize', 'mgPerPortion']) {
     if (cloudNewer && cloud[k] !== undefined) state[k] = cloud[k];
   }
@@ -277,13 +279,15 @@ async function syncMerge() {
 }
 
 // миграция: заполняем подтверждённые дни от даты старта до вчерашнего;
-// сегодняшний день засчитывается только после отметки
+// сегодняшний день засчитывается только после отметки.
+// День отказа с указанным временем неполный — не считаем его.
 if (!Array.isArray(state.checkins)) {
   state.checkins = [];
-  const start = new Date(state.startDate + 'T00:00:00');
+  const from = new Date(state.startDate + 'T00:00:00');
+  if (state.startTime) from.setDate(from.getDate() + 1);
   const now = new Date();
   const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  for (let d = new Date(start); d < todayMidnight; d.setDate(d.getDate() + 1)) {
+  for (let d = new Date(from); d < todayMidnight; d.setDate(d.getDate() + 1)) {
     state.checkins.push(localDateStr(d));
   }
   save();
@@ -309,20 +313,27 @@ for (const [key, el] of Object.entries(inputs)) {
 
 document.getElementById('relapseBtn').addEventListener('click', () => {
   if (!confirm('Сбросить счётчик и начать заново с сегодняшнего дня?')) return;
-  const today = localDateStr(new Date());
-  state.startDate = today;
-  state.checkins = [today];
+  const now = new Date();
+  state.startDate = localDateStr(now);
+  state.startTime = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
+  state.checkins = [state.startDate];
   save();
   render();
 });
 
 const checkinBtn = document.getElementById('checkinBtn');
 const checkinHint = document.getElementById('checkinHint');
-checkinBtn.addEventListener('click', () => {
+checkinBtn.addEventListener('click', async () => {
   const today = localDateStr(new Date());
+  if (state.checkins.includes(today)) return;
+  checkinBtn.disabled = true;
+  await syncMerge(); // сначала подтягиваем облако, чтобы не затереть чужие отметки
   if (!state.checkins.includes(today)) {
     state.checkins.push(today);
+    state.updatedAt = Date.now();
     save();
+    render();
+  } else {
     render();
   }
 });
@@ -349,13 +360,19 @@ function plural(n, one, few, many) {
 }
 
 function render() {
-  const start = new Date(state.startDate + 'T00:00:00');
+  const start = state.startTime
+    ? new Date(state.startDate + 'T' + state.startTime + ':00')
+    : new Date(state.startDate + 'T00:00:00');
   const now = new Date();
   const diffMs = Math.max(0, now - start);
   const diffDays = state.checkins.length; // только подтверждённые дни
   const diffHours = Math.max(0, Math.floor(diffMs / 3600000));
   const today = localDateStr(now);
   const confirmedToday = state.checkins.includes(today);
+
+  document.getElementById('startLabel').textContent =
+    'Отказался от снюса: ' + state.startDate.split('-').reverse().join('.') +
+    (state.startTime ? ' в ' + state.startTime : '');
 
   // кнопка ежедневного подтверждения
   if (confirmedToday) {
