@@ -134,6 +134,21 @@
     border-radius: 10px; color: var(--text); padding: 10px 12px; font-size: 1rem;
   }
   .field input:focus { outline: none; border-color: var(--accent); }
+
+  .goal {
+    margin-top: 26px; width: 100%; max-width: 680px;
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 16px; padding: 20px;
+  }
+  .goal h2 { font-size: 1rem; margin-bottom: 14px; }
+  .bar { height: 10px; background: #1c2534; border-radius: 99px; overflow: hidden; margin-top: 14px; }
+  .bar i { display: block; height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent2)); border-radius: 99px; transition: width .6s; }
+  .goal-text { color: var(--muted); font-size: .88rem; margin-top: 10px; }
+  .forecast { color: var(--muted); font-size: .85rem; margin-top: 14px; }
+  .forecast b { color: var(--accent); font-weight: 700; }
+
+  .sync-status { color: var(--muted); font-size: .8rem; margin-top: 14px; text-align: center; }
+  .sync-status.err { color: #f87171; }
 </style>
 </head>
 <body>
@@ -164,6 +179,25 @@
     <div class="card"><div class="value" id="money">0 ₽</div><div class="label">сэкономлено</div></div>
     <div class="card"><div class="value" id="nicotine">0 мг</div><div class="label">никотина не получено*</div></div>
     <div class="card"><div class="value" id="hours">0</div><div class="label">часов чистой крови</div></div>
+  </div>
+
+  <div class="goal">
+    <h2>На что копится</h2>
+    <div class="row">
+      <div class="field" style="flex: 2; min-width: 180px;">
+        <label>Цель</label>
+        <input type="text" id="goalName" placeholder="Например: новые наушники">
+      </div>
+      <div class="field">
+        <label>Сумма, ₽</label>
+        <input type="number" id="goalSum" min="0" step="100">
+      </div>
+    </div>
+    <div class="bar"><i id="goalBar" style="width:0%"></i></div>
+    <div class="goal-text" id="goalText">Впиши цель и сумму, и тут появится прогресс.</div>
+    <div class="forecast">
+      Так копится: за месяц <b id="fMonth"></b> · за полгода <b id="fHalf"></b> · за год <b id="fYear"></b>
+    </div>
   </div>
 
   <div class="timeline">
@@ -200,6 +234,7 @@
         <input type="number" id="mgPerPortion" min="0" step="0.1">
       </div>
     </div>
+    <div class="sync-status" id="syncStatus"></div>
   </div>
 
 <script>
@@ -210,6 +245,8 @@ const DEFAULTS = {
   canPrice: 630,
   canSize: 20,
   mgPerPortion: 8,
+  goalName: '',
+  goalSum: 0,
 };
 const LS_KEY = 'snus-tracker-v6';
 const SYNC_BIN_ID = '6ad3ceaaffd5d16053743f69'; // jsonbin-контейнер для синхронизации между устройствами
@@ -221,6 +258,14 @@ function localDateStr(d) {
     String(d.getDate()).padStart(2, '0');
 }
 
+// --- статус синхронизации ---
+const syncStatusEl = document.getElementById('syncStatus');
+function setSync(text, isErr) {
+  if (!syncStatusEl) return;
+  syncStatusEl.textContent = text;
+  syncStatusEl.className = 'sync-status' + (isErr ? ' err' : '');
+}
+
 let state = load();
 function load() {
   try {
@@ -229,9 +274,27 @@ function load() {
   } catch (e) {}
   return { ...DEFAULTS };
 }
-function save() {
+
+// локально сохраняем сразу, в облако — с задержкой (чтобы не дёргать API на каждое нажатие);
+// immediate=true пишет в облако сразу (ежедневная отметка, сброс счётчика)
+let syncTimer = null;
+function save(immediate) {
   localStorage.setItem(LS_KEY, JSON.stringify(state));
-  syncWrite();
+  clearTimeout(syncTimer);
+  if (immediate) {
+    cloudWrite();
+  } else {
+    syncTimer = setTimeout(cloudWrite, 700);
+  }
+}
+async function cloudWrite() {
+  setSync('Сохраняю…');
+  const ok = await syncWrite();
+  setSync(
+    ok ? 'Синхронизировано: телефон и мак видят одно и то же'
+       : 'Нет связи с облаком. Изменения остались в этом браузере',
+    !ok
+  );
 }
 
 // --- облачная синхронизация (jsonbin.io) ---
@@ -249,19 +312,23 @@ async function syncRead() {
 }
 
 async function syncWrite() {
-  if (!SYNC_BIN_ID) return;
+  if (!SYNC_BIN_ID) return false;
   try {
-    await fetch('https://api.jsonbin.io/v3/b/' + SYNC_BIN_ID, {
+    const r = await fetch('https://api.jsonbin.io/v3/b/' + SYNC_BIN_ID, {
       method: 'PUT',
       headers: { 'X-Master-Key': SYNC_KEY, 'Content-Type': 'application/json' },
       body: JSON.stringify({ ...state, updatedAt: Date.now() }),
     });
-  } catch (e) {}
+    return r.ok;
+  } catch (e) { return false; }
 }
 
 async function syncMerge() {
   const cloud = await syncRead();
-  if (!cloud) return;
+  if (!cloud) {
+    setSync(SYNC_BIN_ID ? 'Нет связи с облаком. Показываю последние сохранённые данные' : 'Синхронизация недоступна: данные только в этом браузере', !!SYNC_BIN_ID);
+    return;
+  }
   const local = { ...state };
   if (Array.isArray(cloud.checkins)) {
     state.checkins = [...new Set([...(local.checkins || []), ...cloud.checkins])].sort();
@@ -271,11 +338,12 @@ async function syncMerge() {
   }
   const cloudNewer = (cloud.updatedAt || 0) > (local.updatedAt || 0);
   if (cloudNewer && cloud.startTime !== undefined) state.startTime = cloud.startTime;
-  for (const k of ['portionsPerDay', 'canPrice', 'canSize', 'mgPerPortion']) {
+  for (const k of ['portionsPerDay', 'canPrice', 'canSize', 'mgPerPortion', 'goalName', 'goalSum']) {
     if (cloudNewer && cloud[k] !== undefined) state[k] = cloud[k];
   }
   state.updatedAt = Math.max(cloud.updatedAt || 0, local.updatedAt || 0);
   save();
+  setSync('Синхронизировано: телефон и мак видят одно и то же');
 }
 
 // миграция: заполняем подтверждённые дни от даты старта до вчерашнего;
@@ -301,6 +369,8 @@ const inputs = {
 };
 function syncInputs() {
   for (const [key, el] of Object.entries(inputs)) el.value = state[key];
+  document.getElementById('goalName').value = state.goalName;
+  document.getElementById('goalSum').value = state.goalSum || '';
 }
 for (const [key, el] of Object.entries(inputs)) {
   el.addEventListener('input', () => {
@@ -310,6 +380,18 @@ for (const [key, el] of Object.entries(inputs)) {
     render();
   });
 }
+document.getElementById('goalName').addEventListener('input', e => {
+  state.goalName = e.target.value;
+  state.updatedAt = Date.now();
+  save();
+  render();
+});
+document.getElementById('goalSum').addEventListener('input', e => {
+  state.goalSum = Math.max(0, parseFloat(e.target.value) || 0);
+  state.updatedAt = Date.now();
+  save();
+  render();
+});
 
 document.getElementById('relapseBtn').addEventListener('click', () => {
   if (!confirm('Сбросить счётчик и начать заново с сегодняшнего дня?')) return;
@@ -317,7 +399,7 @@ document.getElementById('relapseBtn').addEventListener('click', () => {
   state.startDate = localDateStr(now);
   state.startTime = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
   state.checkins = [state.startDate];
-  save();
+  save(true);
   render();
 });
 
@@ -331,7 +413,7 @@ checkinBtn.addEventListener('click', async () => {
   if (!state.checkins.includes(today)) {
     state.checkins.push(today);
     state.updatedAt = Date.now();
-    save();
+    save(true);
     render();
   } else {
     render();
@@ -418,6 +500,32 @@ function render() {
   document.getElementById('nicotine').textContent = mg.toLocaleString('ru-RU', { maximumFractionDigits: 0 }) + ' мг';
   document.getElementById('hours').textContent = diffHours.toLocaleString('ru-RU');
 
+  // прогноз накоплений
+  const dayMoney = state.portionsPerDay / (state.canSize || 1) * state.canPrice;
+  const fmtRub = n => n.toLocaleString('ru-RU', { maximumFractionDigits: 0 }) + ' ₽';
+  document.getElementById('fMonth').textContent = fmtRub(dayMoney * 30);
+  document.getElementById('fHalf').textContent = fmtRub(dayMoney * 182.5);
+  document.getElementById('fYear').textContent = fmtRub(dayMoney * 365);
+
+  // цель: прогресс-бар и оставшееся время
+  const goalBar = document.getElementById('goalBar');
+  const goalText = document.getElementById('goalText');
+  const g = +state.goalSum;
+  if (g > 0) {
+    const pct = Math.min(100, money / g * 100);
+    goalBar.style.width = pct + '%';
+    const name = state.goalName || 'цель';
+    const leftDays = Math.ceil((g - money) / dayMoney);
+    goalText.textContent = pct >= 100
+      ? 'Готово: на «' + name + '» уже хватает. Можно брать.'
+      : dayMoney > 0
+        ? '«' + name + '»: ' + pct.toFixed(0) + '%. Ещё примерно ' + leftDays + ' ' + plural(leftDays, 'день', 'дня', 'дней') + ' без снюса.'
+        : '«' + name + '»: ' + pct.toFixed(0) + '%. Заполни параметры расхода, чтобы считать сроки.';
+  } else {
+    goalBar.style.width = '0%';
+    goalText.textContent = 'Впиши цель и сумму, и тут появится прогресс.';
+  }
+
   // шкала вех
   const box = document.getElementById('milestones');
   box.innerHTML = '';
@@ -429,12 +537,17 @@ function render() {
     const row = document.createElement('div');
     row.className = 'milestone' + (done ? ' done' : isCurrent ? ' current' : '');
     const leftDays = m.d - diffDays;
+    // до ближайшей вехи ближе суток — показываем часы
+    const hoursLeft = m.d * 24 - diffHours;
+    const leftText = hoursLeft > 0 && hoursLeft < 24
+      ? 'через ' + Math.max(1, hoursLeft) + ' ч'
+      : 'через ' + leftDays + ' ' + plural(leftDays, 'день', 'дня', 'дней');
     row.innerHTML =
       `<div class="dot">${done ? '✓' : ''}</div>
        <div class="m-body">
          <div class="m-title">${m.title}</div>
          <div class="m-desc">${m.desc}</div>
-         ${!done && leftDays > 0 ? `<div class="m-days">через ${leftDays} ${plural(leftDays, 'день', 'дня', 'дней')}</div>` : ''}
+         ${!done && leftDays > 0 ? `<div class="m-days">${leftText}</div>` : ''}
        </div>`;
     box.appendChild(row);
   });
